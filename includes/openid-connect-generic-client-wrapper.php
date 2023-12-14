@@ -523,11 +523,37 @@ class OpenID_Connect_Generic_Client_Wrapper {
 		$subject_identity = $client->get_subject_identity( $id_token_claim );
 		$user = $this->get_user_by_identity( $subject_identity );
 
+		$wp_roles = wp_roles();
+
+		$claim_groups  = [];
+		$this->get_claim("groups", $user_claim,  $claim_groups);
+		$user_roles = [];
+		foreach ($claim_groups as $claim_group) {
+			if ((substr( $claim_group, 0, 3 ) === "wp_")) {
+				$wp_role = substr($claim_group, 3, strlen($claim_group) - 3);
+				if (array_key_exists($wp_role, $wp_roles->get_names())) {
+					$user_roles []= $wp_role;
+				}
+			}
+		}
+
+		if ( $user ) {
+			if (count($user_roles) > 0){
+				foreach ($user_roles as $user_role) {
+					$user->add_role($user_role);
+				}
+			}
+
+			if (count($user_roles) ==0) {
+				$user->set_role('');
+			}
+		}
+
 		// A pre-existing IDP mapped user wasn't found.
 		if ( ! $user ) {
 			// If linking existing users or creating new ones call the `create_new_user` method which handles both cases.
 			if ( $this->settings->link_existing_users || $this->settings->create_if_does_not_exist ) {
-				$user = $this->create_new_user( $subject_identity, $user_claim );
+				$user = $this->create_new_user( $subject_identity, $user_claim , $user_roles );
 				if ( is_wp_error( $user ) ) {
 					$this->error_redirect( $user );
 				}
@@ -958,7 +984,7 @@ class OpenID_Connect_Generic_Client_Wrapper {
 	 *
 	 * @return \WP_Error | \WP_User
 	 */
-	public function create_new_user( $subject_identity, $user_claim ) {
+	public function create_new_user( $subject_identity, $user_claim, $user_roles) {
 		$user_claim = apply_filters( 'openid-connect-generic-alter-user-claim', $user_claim );
 
 		// Default username & email to the subject identity.
@@ -1101,7 +1127,9 @@ class OpenID_Connect_Generic_Client_Wrapper {
 
 		// Retrieve our new user.
 		$user = get_user_by( 'id', $uid );
-
+		foreach ($user_roles as $user_role) {
+			$user->add_role($user_role);
+		}
 		// Save some meta data about this new user for the future.
 		add_user_meta( $user->ID, 'openid-connect-generic-subject-identity', (string) $subject_identity, true );
 
